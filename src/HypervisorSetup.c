@@ -4,6 +4,19 @@
 #include "../inc/SyscallInterceptor.h"
 #include <wdm.h>
 
+
+// GPA of the MSR_LSTAR stub page (will be set in BuildEptIdentityMap)
+UINT64 g_lstarGpa = 0;
+
+// Pointers to the WHP APIs (loaded via MmGetSystemRoutineAddress)
+PFN_WHvCreatePartition              g_pWHvCreatePartition = NULL;
+PFN_WHvSetupPartition               g_pWHvSetupPartition = NULL;
+PFN_WHvDeletePartition              g_pWHvDeletePartition = NULL;   // <— this one was missing
+PFN_WHvSetPartitionProperty         g_pWHvSetPartitionProperty = NULL;
+PFN_WHvCreateVirtualProcessor       g_pWHvCreateVirtualProcessor = NULL;
+PFN_WHvRunVirtualProcessor          g_pWHvRunVirtualProcessor = NULL;
+PFN_WHvDeleteVirtualProcessor       g_pWHvDeleteVirtualProcessor = NULL;
+PFN_WHvGetVirtualProcessorRegisters g_pWHvGetVirtualProcessorRegisters = NULL;
 static WHV_PARTITION_HANDLE g_PartitionHandle;
 
 NTSTATUS
@@ -35,13 +48,6 @@ InitializeHypervisor(
         KdPrint(("Hypervisor: BuildEptIdentityMap failed: 0x%X\n", status));
         ShutdownHypervisor();
         return status;
-    }
-
-    // 4) Start the interceptor (vCPU) thread
-    status = StartInterceptorThread(g_PartitionHandle);
-    if (!NT_SUCCESS(status)) {
-        KdPrint(("Hypervisor: StartInterceptorThread failed: 0x%X\n", status));
-        ShutdownHypervisor();
     }
 
     return status;
@@ -91,24 +97,19 @@ BuildEptIdentityMap(
     return STATUS_SUCCESS;
 }
 
-_IRQL_requires_max_(PASSIVE_LEVEL)
-NTSTATUS
-StartInterceptorThread(
-    _In_ WHV_PARTITION_HANDLE PartitionHandle
+//------------------------------------------------------------------------------
+// Stub for SingleStepLstar (must match your header)
+//------------------------------------------------------------------------------
+_IRQL_requires_max_(DISPATCH_LEVEL)
+VOID
+SingleStepLstar(
+    _In_ WHV_PARTITION_HANDLE               PartitionHandle,
+    _In_ const WHV_RUN_VP_EXIT_CONTEXT* ExitCtx
 )
 {
     UNREFERENCED_PARAMETER(PartitionHandle);
-    // TODO: Launch your PsCreateSystemThread for RunVirtualProcessor loop
-    KdPrint(("Hypervisor: StartInterceptorThread stub called\n"));
-    return STATUS_SUCCESS;
+    UNREFERENCED_PARAMETER(ExitCtx);
+    // TODO: emulate or single-step the first instruction at LSTAR GPA
+    KdPrint(("SingleStepLstar stub\n"));
 }
 
-_IRQL_requires_max_(PASSIVE_LEVEL)
-void
-StopInterceptorThread(
-    void
-)
-{
-    // TODO: Signal your interceptor thread to exit and wait on its handle
-    KdPrint(("Hypervisor: StopInterceptorThread stub called\n"));
-}

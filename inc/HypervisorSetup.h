@@ -157,8 +157,7 @@ NTSTATUS StartInterceptorThread(
     _In_ WHV_PARTITION_HANDLE PartitionHandle
 );
 
-_IRQL_requires_max_(PASSIVE_LEVEL)
-void     StopInterceptorThread(void);
+
 
 //
 // **NEW**: hooks to arm/disarm the syscall‐stub execute‐disable EPT trap

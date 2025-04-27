@@ -209,3 +209,29 @@ EnqueueSyscallRecord(
     SignalUserEvent();
     return TRUE;
 }
+//------------------------------------------------------------------------------
+// Stubs for the IoctlDispatch helpers
+//------------------------------------------------------------------------------
+_IRQL_requires_max_(PASSIVE_LEVEL)
+NTSTATUS
+StartProcessMonitor(
+    _In_ HANDLE pid
+)
+{
+    UNREFERENCED_PARAMETER(pid);
+    // TODO: start EPT trapping for this PID (or simply return success for now)
+    KdPrint(("StartProcessMonitor stub: PID=%u\n", (ULONG)(ULONG_PTR)pid));
+    return STATUS_SUCCESS;
+}
+
+_IRQL_requires_max_(PASSIVE_LEVEL)
+NTSTATUS
+StopProcessMonitor(
+    _In_ HANDLE pid
+)
+{
+    UNREFERENCED_PARAMETER(pid);
+    // TODO: stop EPT trapping for this PID
+    KdPrint(("StopProcessMonitor stub: PID=%u\n", (ULONG)(ULONG_PTR)pid));
+    return STATUS_SUCCESS;
+}
