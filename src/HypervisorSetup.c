@@ -1,25 +1,63 @@
 // src/HypervisorSetup.c
+
 #include "../inc/HypervisorSetup.h"
 #include "../inc/SyscallInterceptor.h"
 #include <wdm.h>
 
-static WHV_PARTITION_HANDLE g_part;
+static WHV_PARTITION_HANDLE g_PartitionHandle;
 
-NTSTATUS InitializeHypervisor() {
+NTSTATUS
+InitializeHypervisor(
+    void
+)
+{
     NTSTATUS status;
-    status = WhvCreatePartition(&g_part);
-    if (!NT_SUCCESS(status)) return status;
-    status = WhvSetupPartition(g_part);
-    if (!NT_SUCCESS(status)) { WhvDeletePartition(g_part); return status; }
-    // Setup EPT/NPT identity map and guest initial state...
-    status = BuildEptIdentityMap(g_part);
-    if (!NT_SUCCESS(status)) { ShutdownHypervisor(); return status; }
-    // Create vCPU and start interception thread
-    status = StartInterceptorThread(g_part);
+
+    // 1) Create the partition
+    status = g_pWHvCreatePartition(&g_PartitionHandle);
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Hypervisor: WHvCreatePartition failed: 0x%X\n", status));
+        return status;
+    }
+
+    // 2) Configure + setup the partition
+    status = g_pWHvSetupPartition(g_PartitionHandle);
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Hypervisor: WHvSetupPartition failed: 0x%X\n", status));
+        g_pWHvDeletePartition(g_PartitionHandle);
+        g_PartitionHandle = 0;
+        return status;
+    }
+
+    // 3) Build the EPT/NPT identity map and initial guest state
+    status = BuildEptIdentityMap(g_PartitionHandle);
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Hypervisor: BuildEptIdentityMap failed: 0x%X\n", status));
+        ShutdownHypervisor();
+        return status;
+    }
+
+    // 4) Start the interceptor (vCPU) thread
+    status = StartInterceptorThread(g_PartitionHandle);
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Hypervisor: StartInterceptorThread failed: 0x%X\n", status));
+        ShutdownHypervisor();
+    }
+
     return status;
 }
 
-void ShutdownHypervisor() {
+void
+ShutdownHypervisor(
+    void
+)
+{
+    // Stop the vCPU/interceptor thread
     StopInterceptorThread();
-    if (g_part) { WhvDeletePartition(g_part); g_part = 0; }
+
+    // Tear down the partition if it exists
+    if (g_PartitionHandle) {
+        g_pWHvDeletePartition(g_PartitionHandle);
+        g_PartitionHandle = 0;
+    }
 }

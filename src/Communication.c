@@ -23,20 +23,23 @@ static SyscallRecord  g_ringBuffer[1024];
 
 NTSTATUS
 RegisterIoctlHandlers(
-    _In_ WDFDEVICE device,
-    _In_ WDFQUEUE  queue
+    WDFDEVICE device
 )
 {
-    UNREFERENCED_PARAMETER(device);
-
-    WDF_IO_QUEUE_CONFIG  qcfg;
+    WDF_IO_QUEUE_CONFIG qcfg;
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&qcfg, WdfIoQueueDispatchSequential);
-
-    // Now the compiler knows IoctlDispatch
     qcfg.EvtIoDeviceControl = IoctlDispatch;
 
-    return WdfIoQueueCreate(device, &qcfg, WDF_NO_OBJECT_ATTRIBUTES, NULL);
+    // Create the default sequential queue for IOCTL dispatch:
+    return WdfIoQueueCreate(
+        device,
+        &qcfg,
+        WDF_NO_OBJECT_ATTRIBUTES,
+        NULL     // we don't need to save the WDFQUEUE handle
+    );
 }
+
+
 
 // Now define the callback itself, matching the typedef exactly:
 
