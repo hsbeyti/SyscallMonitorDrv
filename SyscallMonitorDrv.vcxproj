@@ -86,7 +86,7 @@
     </DriverSign>
     <ClCompile>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um;C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\km;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(WindowsSdkDir)\Include\&lt;ver&gt;\shared;$(WindowsSdkDir)\Include\&lt;ver&gt;\um</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">

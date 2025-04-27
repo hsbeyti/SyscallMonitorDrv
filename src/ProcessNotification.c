@@ -1,20 +1,30 @@
-﻿#include "../inc/ProcessNotification.h"
-#include <intrin.h>  // for __readcr3
+﻿// src/ProcessNotification.c
 
-// Per‐process tracking entry
+#include <ntifs.h>                  // PEPROCESS, KAPC_STATE, PsSetCreateProcessNotifyRoutineEx, timers, DPCs
+#include <intrin.h>                 // __readcr3
+#include "../inc/ProcessNotification.h"
+
+// Module‐private process entry
 typedef struct _PROC_ENTRY {
     ULONG_PTR     Cr3;
     LARGE_INTEGER ExpireTime;
 } PROC_ENTRY;
 
-// Globals
-static PROC_ENTRY g_Procs[MAX_MONITORED_PROCS];
-static ULONG      g_ProcCount = 0;
-static KSPIN_LOCK g_ProcLock;
-static KDPC       g_TimerDpc;
-static KTIMER     g_Timer;
+// Storage for up to MAX_MONITORED_PROCS concurrent processes
+static PROC_ENTRY  g_procs[MAX_MONITORED_PROCS];
+static ULONG       g_procCount = 0;
+static KSPIN_LOCK  g_procLock;
+static KDPC        g_timerDpc;
+static KTIMER      g_timer;
 
-// Forward‐declare the DPC routine
+// Forward declarations
+static VOID
+ProcessCreateNotify(
+    _Inout_ PEPROCESS Process,
+    _In_    HANDLE    ProcessId,
+    _In_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo
+);
+
 static VOID
 TimerDpcRoutine(
     _In_ struct _KDPC* Dpc,
@@ -23,46 +33,94 @@ TimerDpcRoutine(
     _In_opt_ PVOID     SystemArgument2
 );
 
-// This is the CreateProcessEx callback
+//------------------------------------------------------------------------------
+_IRQL_requires_max_(DISPATCH_LEVEL)
+BOOLEAN
+IsProcessMonitored(
+    _In_ ULONG_PTR Cr3
+)
+{
+    BOOLEAN found = FALSE;
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&g_procLock, &oldIrql);
+    for (ULONG i = 0; i < g_procCount; i++) {
+        if (g_procs[i].Cr3 == Cr3) {
+            found = TRUE;
+            break;
+        }
+    }
+    KeReleaseSpinLock(&g_procLock, oldIrql);
+    return found;
+}
+
+//------------------------------------------------------------------------------
+_IRQL_requires_max_(PASSIVE_LEVEL)
+NTSTATUS
+RegisterProcessNotifications(
+    void
+)
+{
+    // Initialize lock, timer, and DPC
+    KeInitializeSpinLock(&g_procLock);
+    KeInitializeTimerEx(&g_timer, NotificationTimer);
+    KeInitializeDpc(&g_timerDpc, TimerDpcRoutine, NULL);
+
+    // Register the callback
+    return PsSetCreateProcessNotifyRoutineEx(ProcessCreateNotify, FALSE);
+}
+
+//------------------------------------------------------------------------------
+_IRQL_requires_max_(PASSIVE_LEVEL)
+void
+UnregisterProcessNotifications(
+    void
+)
+{
+    PsSetCreateProcessNotifyRoutineEx(ProcessCreateNotify, TRUE);
+    KeCancelTimer(&g_timer);
+}
+
+//------------------------------------------------------------------------------
 static VOID
 ProcessCreateNotify(
-    _Inout_ PEPROCESS                Process,
-    _In_    HANDLE                   ProcessId,
-    _In_opt_ PPS_CREATE_NOTIFY_INFO  CreateInfo
+    _Inout_ PEPROCESS Process,
+    _In_    HANDLE    ProcessId,
+    _In_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo
 )
 {
     UNREFERENCED_PARAMETER(ProcessId);
 
     if (CreateInfo) {
+        // Grab CR3 from the newly created process
         KAPC_STATE apcState;
-
-        // Grab CR3 from the new process
         KeStackAttachProcess(Process, &apcState);
         ULONG_PTR cr3 = __readcr3();
         KeUnstackDetachProcess(&apcState);
 
-        // Add it to our list under lock
+        // Under lock, add to list and arm EPT hook
         KIRQL oldIrql;
-        KeAcquireSpinLock(&g_ProcLock, &oldIrql);
-        if (g_ProcCount < MAX_MONITORED_PROCS) {
-            g_Procs[g_ProcCount].Cr3 = cr3;
-            KeQuerySystemTime(&g_Procs[g_ProcCount].ExpireTime);
-            g_Procs[g_ProcCount].ExpireTime.QuadPart += 50LL * 10'000'000LL; // +50s
-            g_ProcCount++;
+        KeAcquireSpinLock(&g_procLock, &oldIrql);
 
-            // Arm the EPT execute-disable hook
+        if (g_procCount < MAX_MONITORED_PROCS) {
+            // Record CR3 and expiration time (+50s)
+            g_procs[g_procCount].Cr3 = cr3;
+            KeQuerySystemTime(&g_procs[g_procCount].ExpireTime);
+            g_procs[g_procCount].ExpireTime.QuadPart += 50LL * 10'000'000LL;
+            g_procCount++;
+
+            // Ensure our syscall-stub EPT hook is armed
             ArmEptHook();
 
-            // (Re)start a 1s periodic timer to expire old entries
-            LARGE_INTEGER dueTime;
-            dueTime.QuadPart = -1LL * 1'000'0000LL; // relative –1s
-            KeSetTimerEx(&g_Timer, dueTime, 1000, &g_TimerDpc);
+            // (Re)start a 1s periodic DPC to clean up old entries
+            LARGE_INTEGER dueTime = { .QuadPart = -1LL * 1'000'0000LL }; // –1s relative
+            KeSetTimerEx(&g_timer, dueTime, 1000, &g_timerDpc);
         }
-        KeReleaseSpinLock(&g_ProcLock, oldIrql);
+
+        KeReleaseSpinLock(&g_procLock, oldIrql);
     }
 }
 
-// DPC that runs every second to expire old processes
+//------------------------------------------------------------------------------
 static VOID
 TimerDpcRoutine(
     _In_ struct _KDPC* Dpc,
@@ -79,48 +137,23 @@ TimerDpcRoutine(
     LARGE_INTEGER now;
     KeQuerySystemTime(&now);
 
+    // Remove expired entries under lock
     KIRQL oldIrql;
-    KeAcquireSpinLock(&g_ProcLock, &oldIrql);
+    KeAcquireSpinLock(&g_procLock, &oldIrql);
 
-    // Compact out expired entries
-    ULONG writeIdx = 0;
-    for (ULONG i = 0; i < g_ProcCount; i++) {
-        if (g_Procs[i].ExpireTime.QuadPart > now.QuadPart) {
-            g_Procs[writeIdx++] = g_Procs[i];
+    ULONG   writeIdx = 0;
+    for (ULONG i = 0; i < g_procCount; i++) {
+        if (g_procs[i].ExpireTime.QuadPart > now.QuadPart) {
+            g_procs[writeIdx++] = g_procs[i];
         }
     }
-    g_ProcCount = writeIdx;
+    g_procCount = writeIdx;
 
-    // If none left, disarm hook+timer
-    if (g_ProcCount == 0) {
+    // If nothing left, disarm hook & cancel timer
+    if (g_procCount == 0) {
         DisarmEptHook();
-        KeCancelTimer(&g_Timer);
+        KeCancelTimer(&g_timer);
     }
 
-    KeReleaseSpinLock(&g_ProcLock, oldIrql);
-}
-
-NTSTATUS
-RegisterProcessNotifications(void)
-{
-    // Init lock, timer, and DPC
-    KeInitializeSpinLock(&g_ProcLock);
-    KeInitializeTimerEx(&g_Timer, NotificationTimer);
-    KeInitializeDpc(&g_TimerDpc, TimerDpcRoutine, NULL);
-
-    // Register for process‐create notifications
-    return PsSetCreateProcessNotifyRoutineEx(
-        ProcessCreateNotify,
-        FALSE
-    );
-}
-
-void
-UnregisterProcessNotifications(void)
-{
-    PsSetCreateProcessNotifyRoutineEx(
-        ProcessCreateNotify,
-        TRUE
-    );
-    KeCancelTimer(&g_Timer);
+    KeReleaseSpinLock(&g_procLock, oldIrql);
 }

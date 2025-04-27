@@ -1,4 +1,4 @@
-// src/HypervisorSetup.c
+﻿// src/HypervisorSetup.c
 
 #include "../inc/HypervisorSetup.h"
 #include "../inc/SyscallInterceptor.h"
@@ -46,6 +46,19 @@ InitializeHypervisor(
 
     return status;
 }
+_IRQL_requires_max_(PASSIVE_LEVEL)
+void ArmEptHook(void)
+{
+    // TODO: set the execute‐disable bit on the MSR_LSTAR page in EPT/NPT.
+    KdPrint(("Hypervisor: ArmEptHook called\n"));
+}
+
+_IRQL_requires_max_(PASSIVE_LEVEL)
+void DisarmEptHook(void)
+{
+    // TODO: clear the execute‐disable bit so syscalls run normally again.
+    KdPrint(("Hypervisor: DisarmEptHook called\n"));
+}
 
 void
 ShutdownHypervisor(
@@ -60,4 +73,42 @@ ShutdownHypervisor(
         g_pWHvDeletePartition(g_PartitionHandle);
         g_PartitionHandle = 0;
     }
+}
+//------------------------------------------------------------------------------
+// Stub implementations so the driver will link.
+// Replace these with your real EPT‐builder and interceptor logic later.
+//------------------------------------------------------------------------------
+
+_IRQL_requires_max_(PASSIVE_LEVEL)
+NTSTATUS
+BuildEptIdentityMap(
+    _In_ WHV_PARTITION_HANDLE PartitionHandle
+)
+{
+    UNREFERENCED_PARAMETER(PartitionHandle);
+    // TODO: Build your identity‐mapped EPT/NPT tables here
+    KdPrint(("Hypervisor: BuildEptIdentityMap stub called\n"));
+    return STATUS_SUCCESS;
+}
+
+_IRQL_requires_max_(PASSIVE_LEVEL)
+NTSTATUS
+StartInterceptorThread(
+    _In_ WHV_PARTITION_HANDLE PartitionHandle
+)
+{
+    UNREFERENCED_PARAMETER(PartitionHandle);
+    // TODO: Launch your PsCreateSystemThread for RunVirtualProcessor loop
+    KdPrint(("Hypervisor: StartInterceptorThread stub called\n"));
+    return STATUS_SUCCESS;
+}
+
+_IRQL_requires_max_(PASSIVE_LEVEL)
+void
+StopInterceptorThread(
+    void
+)
+{
+    // TODO: Signal your interceptor thread to exit and wait on its handle
+    KdPrint(("Hypervisor: StopInterceptorThread stub called\n"));
 }

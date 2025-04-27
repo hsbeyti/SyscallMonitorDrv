@@ -168,3 +168,14 @@ void     ArmEptHook(void);
 
 _IRQL_requires_max_(PASSIVE_LEVEL)
 void     DisarmEptHook(void);
+// After your other PFN_* externs…
+
+// Fetch general‐purpose registers at a VM-exit
+typedef HRESULT(WINAPI* PFN_WHvGetVirtualProcessorRegisters)(
+    _In_  WHV_PARTITION_HANDLE Partition,
+    _In_  UINT32               VpIndex,
+    _In_reads_(RegisterCount)  const WHV_REGISTER_NAME* RegisterNames,
+    _In_  UINT32               RegisterCount,
+    _Out_writes_(RegisterCount) WHV_REGISTER_VALUE* RegisterValues
+    );
+extern PFN_WHvGetVirtualProcessorRegisters g_pWHvGetVirtualProcessorRegisters;

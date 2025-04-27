@@ -3,24 +3,32 @@
 
 #include <ntddk.h>
 
-// Maximum syscall ID to track; adjust if needed
+// Maximum syscall ID you might track; adjust if needed
 #define SYSCALL_FILTER_MAX_ID       1023
 
-// Size of bitmap in bytes
+// How many IDs you’re tracking
+#define SYSCALL_FILTER_ID_COUNT     50
+
+// Size of the bitmap in bytes
 #define SYSCALL_FILTER_BITMAP_BYTES ((SYSCALL_FILTER_MAX_ID + 8) / 8)
 
-// Bitmap storing which syscalls are tracked
+// Backing bitmap—one bit per possible syscall ID
 extern UCHAR g_filterBitmap[SYSCALL_FILTER_BITMAP_BYTES];
 
-/// Initialize the syscall filter bitmap (populate bits for tracked IDs)
-NTSTATUS InitializeSyscallFilter(void);
+/// Initialize the filter bitmap (sets bits for your 50 IDs)
+_IRQL_requires_max_(PASSIVE_LEVEL)
+NTSTATUS
+InitializeSyscallFilter(void);
 
-/// Returns TRUE if the given syscall ID is in the tracked set
+/// Clear the filter bitmap (called on driver unload)
+_IRQL_requires_max_(PASSIVE_LEVEL)
+void
+CleanupSyscallFilter(void);
+
+/// Fast inline check if an ID is being tracked
 static __inline
-BOOLEAN IsSyscallTracked(_In_ ULONG Id)
+BOOLEAN
+IsSyscallTracked(_In_ ULONG Id)
 {
     return (BOOLEAN)((g_filterBitmap[Id >> 3] >> (Id & 7)) & 1U);
 }
-
-/// Clear all bits and free any resources (if needed)
-void CleanupSyscallFilter(void);
