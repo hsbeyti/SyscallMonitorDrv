@@ -51,35 +51,45 @@ EvtDeviceAdd(
         return status;
     }
 
-    // 2) Create the IOCTL queue
+    // 2) 🔥 Create the symbolic link for user-mode communication
+    UNICODE_STRING symLink;
+    RtlInitUnicodeString(&symLink, L"\\DosDevices\\SyscallMonitor");
+
+    status = WdfDeviceCreateSymbolicLink(device, &symLink);
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Driver: WdfDeviceCreateSymbolicLink failed 0x%X\n", status));
+        return status;
+    }
+
+    // 3) Create the IOCTL queue
     status = RegisterIoctlHandlers(device);
     if (!NT_SUCCESS(status)) {
         KdPrint(("Driver: RegisterIoctlHandlers failed 0x%X\n", status));
         return status;
     }
 
-    // 3) Setup the user‐mode event and ring buffer
+    // 4) Setup the user-mode event and ring buffer
     status = SetupCommunication(device);
     if (!NT_SUCCESS(status)) {
         KdPrint(("Driver: SetupCommunication failed 0x%X\n", status));
         return status;
     }
 
-    // 4) Initialize the hypervisor
+    // 5) Initialize the hypervisor
     status = InitializeHypervisor();
     if (!NT_SUCCESS(status)) {
         KdPrint(("Driver: InitializeHypervisor failed 0x%X\n", status));
         return status;
     }
 
-    // 5) Register process‐create notifications + timer/DPC
+    // 6) Register process-create notifications
     status = RegisterProcessNotifications();
     if (!NT_SUCCESS(status)) {
         KdPrint(("Driver: RegisterProcessNotifications failed 0x%X\n", status));
         return status;
     }
 
-    // 6) Initialize the syscall filter bitmap
+    // 7) Initialize the syscall filter bitmap
     status = InitializeSyscallFilter();
     if (!NT_SUCCESS(status)) {
         KdPrint(("Driver: InitializeSyscallFilter failed 0x%X\n", status));
