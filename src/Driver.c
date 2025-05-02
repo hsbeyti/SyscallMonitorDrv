@@ -66,10 +66,9 @@ EvtDeviceAdd(
     NTSTATUS status;
 
     // Allocate a CONTROL device for user-mode interface
-    PWDFDEVICE_INIT controlInit = WdfControlDeviceInitAllocate(
-        Driver,
-        &SDDL_DEVOBJ_SYS_ALL_ADM_RWX_WORLD_R
-    );
+    PWDFDEVICE_INIT controlInit =
+        WdfControlDeviceInitAllocate(DeviceInit,
+            L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;WD)");
     if (controlInit == NULL) {
         LOG_RAW("WdfControlDeviceInitAllocate failed");
         return STATUS_INSUFFICIENT_RESOURCES;

@@ -27,6 +27,9 @@ SetupCommunication(
     _In_ WDFDEVICE Device
 );
 
+_IRQL_requires_max_(PASSIVE_LEVEL)
+NTSTATUS StartProcessMonitor(_In_ HANDLE pid);
+
 /// Tear down the communication layer
 _IRQL_requires_max_(PASSIVE_LEVEL)
 VOID
